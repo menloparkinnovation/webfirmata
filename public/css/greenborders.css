@@ -1,0 +1,13 @@
+.tablebutton {
+    width: 100%
+}
+
+.tableswitch {
+  padding-left: 0px;
+  padding-top: 0px;
+}
+
+table, th, tr, td {
+  border: 2px solid green;
+  /* width: 100%; */
+}

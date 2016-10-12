@@ -1,0 +1,425 @@
+<!DOCTYPE html>  
+<html lang="en" class="no-js">
+
+<head>
+  <!-- Angular Material Support -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Angular Material style sheet -->
+  <link rel="stylesheet" href="http://ajax.googleapis.com/ajax/libs/angular_material/1.1.0/angular-material.min.css">
+  <link rel="stylesheet" type="text/css" href="/css/webfirmata.css">
+  <!-- Angular Material Support -->
+
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <title>Web Firmata</title>
+
+  <style>
+  </style>
+
+</head>
+
+<body ng-app="myApp" ng-cloak>
+
+  <script src="/lib/socket.io-client/socket.io.js"></script>
+
+  <!-- Angular must be loaded before the socket dependency on it -->
+  <script src="/lib/angular/angular.js"></script>  
+  <script src="/lib/angular-socket-io/socket.js"></script>
+
+  <!-- Angular Material Libraries -->
+  <!-- Note: these the development, not production versions. -->
+
+  <script src="/lib/angular-animate/angular-animate.js"></script>
+  <script src="/lib/angular-aria/angular-aria.js"></script>
+  <script src="/lib/angular-messages/angular-messages.js"></script>
+  <!-- Angular Material Support -->
+
+  <!-- Angular Material Library -->
+  <script src="/lib/angular-material/angular-material.js"></script>
+  <!-- Angular Material Support -->
+
+  <!-- Local Javascript Library -->
+  <script src="/javascript/webfirmatalib.js"></script>
+  <!-- Local Javascript Library -->
+
+    <h1>{{"Arduino UNO Pins"}}</h1>
+
+    <div ng-controller="ArduController" ng-cloak>
+
+    <div ng-show="data.boardConfig == null">
+       <h2>Waiting for Board to Connect...</h2>
+    </div>
+
+    <table ng-show="data.boardConfig != null">
+
+    <th>Pin</th>
+    <th>Mode</th>
+    <th>State</th>
+
+    <tr ng-repeat="pin in data.pins">
+
+    <td>
+
+      {{pin.pinName}}
+
+    </td>
+
+    <td>
+      <md-select class="md-no-underline"
+                 ng-model="data.pins[pin.pinNumber].pinMode"
+                 ng-change="onModeChange(pin.pinNumber, data.pins[pin.pinNumber].pinMode)"
+                 aria-label="Pin {{pin.pinNumber}} Mode">
+
+          <md-option ng-repeat="sel in pin.supportedModes" value="{{sel}}">{{sel}}</md-option>
+
+        </md-select>
+    </td>
+
+    <td ng-show="data.pins[pin.pinNumber].showSwitch">
+      <div class="tableswitch">
+        <md-switch class="tableswitch"
+                   ng-model="data.pins[pin.pinNumber].pinState"
+                   ng-change="onSwitchChange(pin.pinNumber, data.pins[pin.pinNumber].pinState)"
+                   aria-label="Pin {{pin.pinNumber}}">
+          {{ data.pins[pin.pinNumber].pinText }}
+        </md-switch>
+      </div>
+    </td>
+
+    <td ng-show="data.pins[pin.pinNumber].showButton">
+        <md-button class="md-raised"
+                   ng-model="data.pins[pin.pinNumber].buttonState"
+                   ng-click="onButtonClick(pin.pinNumber)"
+                   ng-disabled="false">
+          {{ data.pins[pin.pinNumber].pinText }}
+        </md-button>
+    </td>
+
+    <td ng-show="data.pins[pin.pinNumber].showPinText">
+          {{ data.pins[pin.pinNumber].pinText }}
+    </td>
+
+    <td ng-show="data.pins[pin.pinNumber].showSlider">
+      <md-slider
+         ng-disabled="!data.pins[pin.pinNumber].showSlider"
+         ng-show="data.pins[pin.pinNumber].showSlider"
+         ng-model="data.pins[pin.pinNumber].sliderLevel"
+         ng-change="onSliderChange(pin.pinNumber, data.pins[pin.pinNumber].sliderLevel)"
+         min="0" max="255" aria-label="PWM Range">
+            {{ data.pins[pin.pinNumber].sliderLevel }}
+        </md-slider>
+    </td>
+
+    <td ng-show="data.pins[pin.pinNumber].showSlider">
+            {{ data.pins[pin.pinNumber].sliderLevel }}
+    </td>
+
+    </tr>
+
+    </table>
+
+    </div>
+
+<script type="text/javascript">  
+    var app = angular.module('myApp', ['btford.socket-io', 'ngMaterial']).
+    factory('mySocket', function (socketFactory) {
+        return socketFactory();
+    }).
+    controller('ArduController', function ($scope, mySocket) {
+ 
+        //
+        // Data contains our controller state for the pin configuration
+        // and settings.
+        //
+        $scope.data = {
+
+            board: null,
+
+            boardConfig: null,
+
+            //
+            // pins array
+            //
+            pins: []
+        };
+
+        //
+        // Board has connected. Get the board configuration,
+        // configure the pins and draw the display.
+        //
+        $scope.boardConnected = function(connectError, board) {
+
+            if (connectError != null) {
+                console.log("waitForBoardConnect: error waiting for board " + connectError);
+                return;
+            }
+
+            // publish board
+            $scope.data.board = board;
+
+            board.getBoardConfig(function(error, boardConfig) {
+
+                if (error != null) {
+                    console.log("boardConnected: error getting board configuration error=" + error);
+                    return;
+                }
+        
+                board.getBoardModes(function(error2, boardModes) {
+
+                    if (error2 != null) {
+                        console.log("boardConnected: error getting board modes error=" + error2);
+                        return;
+                    }
+
+                    // Set it in the scope
+                    $scope.data.boardConfig = boardConfig;
+
+                    //
+                    // Initialize initial pin states
+                    //
+                    for (var index = 0; index < boardConfig.pins.length; index++) {
+                        $scope.configurePin(boardConfig, boardModes, index);
+
+                        // Set the view for the default pin mode
+                        $scope.processModeView(index);
+                    }
+                });
+            });
+        };
+
+        //
+        // Build pin data structure from board config.
+        //
+        $scope.configurePin = function(boardConfig, boardModes, pin) {
+
+            // Initialize a record for each pin
+            var pinData = {
+
+                // This is the state of a pin
+                pinNumber: pin,
+                pinName: "D" + pin,
+                pinMode: "INPUT",
+                pinState: false,
+                pinText: "LOW",
+                buttonState: false,
+                sliderLevel: 0,
+
+                // pinModes to select
+                supportedModes: [],
+
+                // These control the view for ng-show="pins[pin].showXXXX"
+                showSwitch: false,
+                showButton: false,
+                showPinText: false,
+                showSlider: false
+            };
+                                
+            pinData.supportedModes = $scope.data.board.getPinModesAsString(pin);
+
+            //
+            // If the support supports ANALOG mark it as A0, etc.
+            // from the board configuration.
+            //
+            var analogPin = $scope.data.board.isAnalogPin(pin);
+            if (analogPin != (-1)) {
+                pinData.pinName = "A" + analogPin;
+            }
+                                        
+            //
+            // Set state based on boardModes
+            //
+
+            //
+            // Use Mode "UNAVAILABLE" for pins with no modes such as D0 + D1
+            //
+            if (pinData.supportedModes.length == 0) {
+                pinData.pinMode = "UNAVAILABLE";
+                pinData.supportedModes[0] = "UNAVAILABLE";
+            }
+
+            $scope.data.pins[pin] = pinData;
+        };
+
+        //
+        // Process a change in the view for a mode change
+        //
+        // This eliminates display decision logic in the angular HTML markup.
+        //
+        // These values are used by ng-show="pins[pin].showXXXX"
+        //
+        $scope.processModeView = function(pin) {
+
+            var p = $scope.data.pins[pin];
+
+            if (p.pinMode == "OUTPUT") {
+                p.showSwitch = true;
+            }
+            else {
+                p.showSwitch = false;
+            }
+
+            if (p.pinMode == "OUTPUT") {
+                p.showButton = true;
+            }
+            else {
+                p.showButton = false;
+            }
+
+            if ((p.pinMode == "INPUT") || (p.pinMode == "PULLUP") || (p.pinMode == "ANALOG")) {
+                p.showPinText = true;
+            }
+            else {
+                p.showPinText = false;
+            }
+
+            if (p.pinMode == "PWM") {
+                p.showSlider = true;
+            }
+            else {
+                p.showSlider = false;
+            }
+        };
+
+        //
+        // Process a change in the mode of a pin.
+        //
+        $scope.onModeChange = function(pin, mode) {
+            console.log("onModeChange(" + pin + ", " + mode + ")");
+
+            $scope.data.pins[pin].pinMode = mode;
+
+            var pinState = $scope.data.pins[pin].pinState;
+
+            // Set the view for the default pin mode
+            $scope.processModeView(pin);
+
+            var binaryMode = $scope.data.board.getPinModeNumber($scope.data.boardConfig, mode);
+
+            //
+            // This is a transaction function since it can fail
+            //
+            $scope.data.board.pinMode(pin, binaryMode, pinState, function(error) {
+                if (error != null) {
+                    console.log("pinMode: error=" + error);
+                }
+                else {
+                    console.log("pinMode: success");
+                }
+            });
+        };
+
+        //
+        // Worker for processing change in pin state
+        //
+        $scope.processPinStateChange = function(pin) {
+
+            //
+            // Update any UI visible variables
+            //
+            if ($scope.data.pins[pin].pinState) {
+                $scope.data.pins[pin].pinText = "HIGH";
+            }
+            else {
+                $scope.data.pins[pin].pinText = "LOW";
+            }
+
+            // Send to firmata
+            $scope.data.board.digitalWrite(pin, $scope.data.pins[pin].pinState);
+        };
+
+        //
+        // Process a button click
+        //
+        $scope.onButtonClick = function(pin) {
+
+            console.log("onButtonClick(" + pin + ")");
+
+            //
+            // A button click simply toggles the current pin state
+            //
+            if ($scope.data.pins[pin].pinState) {
+                $scope.data.pins[pin].pinState = false;
+            }
+            else {
+                $scope.data.pins[pin].pinState = true;
+            }
+
+            // Update the model, remote host
+            $scope.processPinStateChange(pin);
+        };
+
+        $scope.onSwitchChange = function(pin, state) {
+            console.log("onSwitchChange(" + pin + ", " + state + ")");
+
+            $scope.data.pins[pin].pinState = state;
+
+            // Update the model, remote host
+            $scope.processPinStateChange(pin);
+        };
+
+        $scope.onSliderChange = function(pin, level) {
+            console.log("onSliderChange(" + pin + ", " + level + ")");
+
+            $scope.data.pins[pin].sliderLevel = level;
+
+            $scope.data.board.analogWrite(pin, level);
+        };
+
+//
+// Inline Startup Code:
+//
+
+        //
+        // socket read handler for input pin changes
+        //
+        // Arguments:
+        //
+        //  {
+        //    pin: pin_number,
+        //    state: pin_state or analog value
+        //  }
+        //
+        mySocket.on('inputPinReader', function (data) {
+            console.log("inputPinReader: pin " + data.pin + " state " + data.state);
+
+            var pin = data.pin;
+
+            var mode = $scope.data.pins[pin].pinMode;
+
+            // Analog or Digital pinState reflects whether 0, or != 0
+            if (data.state == 0) {
+                $scope.data.pins[pin].pinState = false;
+            }
+            else {
+                $scope.data.pins[pin].pinState = true;
+            }
+
+            //
+            // Display based on analog or digital
+            //
+
+            if ((mode == "INPUT") || (mode == "PULLUP")) {
+
+                // Input is digital
+                if (data.state) {
+                    $scope.data.pins[pin].pinText = "HIGH";
+                }
+                else {
+                    $scope.data.pins[pin].pinText = "LOW";
+                }
+            }
+            else if (mode == "ANALOG") {
+                // Analog value
+                $scope.data.pins[pin].pinText = data.state;
+            }
+        });
+
+        // Wait for board to connect before displaying main UI
+        webfirmata.waitForBoardConnect(mySocket, $scope.boardConnected);
+  });
+</script>  
+
+</body>
+
+</html>

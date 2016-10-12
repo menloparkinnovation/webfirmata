@@ -1,0 +1,17 @@
+
+Many projects such as this try and stick to a single page, or a single
+page for server, client, etc.
+
+But this project demonstrates common/best practices for a maintained
+web project so it separates code for UI, handling the web firmata
+protocol, stylesheets, etc.
+
+It also makes use of standard development and deployment tools such
+as npm, bower, etc.
+
+It can be used as a starting template for other projects, or components
+taken out and re-used.
+
+Menlo Park Innovation LLC
+10/05/2016
+
