@@ -1,4 +1,11 @@
 
+//
+//
+// ArduinoPort represents the expected name. It could be null
+// in that case the remote client must select the port from the list
+// presented.
+//
+
 // On USB hub
 var ArduinoPort = "/dev/cu.usbmodem14271";
 
@@ -127,6 +134,30 @@ io.on('connection', function (socket) {
 //
 var serialPortFactory = require("./node_modules/firmata/node_modules/serialport");
 
+//
+// Register for port name selection changes from the UI
+//
+webfirmata.onPortSelected(function(portName) {
+    console.log("onPortSelected: New port name " + portName);
+
+    ArduinoPort = portName;
+});
+
+//
+// Attempt to get a port list and notify any webfirmata listeners.
+//
+function getPortList(callback) {
+
+    serialPortFactory.list(function(listError, ports) {
+        if (listError) {
+            console.log("could not get port list error " + listError);
+        }
+        else {
+            webfirmata.newPortList(ports);
+        }
+    });
+}
+
 function tryOpenSerialPort(serialPortName, callback) {
 
     var serialPortSettings = {
@@ -138,21 +169,24 @@ function tryOpenSerialPort(serialPortName, callback) {
 
     serialPort.on("error", function(error) {
         console.log(error);
-        callback(error, null);
+        callback(error, null, serialPortName);
     });
 
     serialPort.on("open", function() {
-        callback(null, serialPort);
+        callback(null, serialPort, serialPortName);
     });
 }
 
-function tryOpenSerialPortCallback(error, newSerialPort) {
+function tryOpenSerialPortCallback(error, newSerialPort, serialPortName) {
 
     var timeoutObject = null;
 
     if (error != null) {
 
         console.log("Please connect a board.....");
+
+        // Show the port list async
+        getPortList();
 
         //
         // Poll for a Firmata board arrival every 10 seconds
@@ -164,7 +198,7 @@ function tryOpenSerialPortCallback(error, newSerialPort) {
         }, 10 * 1000);
     }
     else {
-        console.log("tryOpenSerialPortCallback: port opened");
+        console.log("tryOpenSerialPortCallback: port opened " + serialPortName);
 
         //
         // Now create a Board instance with the serialPort
